@@ -192,6 +192,8 @@
 #define VENDOR_ID_YULONG_COOLPAD 0x1EBF
 // ZTE's USB Vendor ID
 #define VENDOR_ID_ZTE           0x19D2
+// FP2's USB Vendor ID
+#define VENDOR_ID_FP2           0x2AE5
 /* Keep the list above sorted alphabetically by #define name */
 
 /** built-in vendor list */
@@ -275,6 +277,7 @@ int builtInVendorIds[] = {
     VENDOR_ID_YOTADEVICES,
     VENDOR_ID_YULONG_COOLPAD,
     VENDOR_ID_ZTE,
+    VENDOR_ID_FP2,
 };
 /* Keep the list above sorted alphabetically */
 
