@@ -67,7 +67,7 @@ char *locale;
 #define POWER_ON_KEY_TIME       (2 * MSEC_PER_SEC)
 #define UNPLUGGED_SHUTDOWN_TIME (1 * MSEC_PER_SEC)
 
-#define BATTERY_FULL_THRESH     95
+#define BATTERY_FULL_THRESH     97
 
 #define LAST_KMSG_PATH          "/proc/last_kmsg"
 #define LAST_KMSG_PSTORE_PATH   "/sys/fs/pstore/console-ramoops"
@@ -128,37 +128,61 @@ struct charger {
 
 static struct frame batt_anim_frames[] = {
     {
-        .disp_time = 750,
-        .min_capacity = 0,
+        .disp_time = 500,
+        .min_capacity = 10,
         .level_only = false,
         .surface = NULL,
     },
     {
-        .disp_time = 750,
+        .disp_time = 500,
         .min_capacity = 20,
         .level_only = false,
         .surface = NULL,
     },
     {
-        .disp_time = 750,
+        .disp_time = 500,
+        .min_capacity = 30,
+        .level_only = false,
+        .surface = NULL,
+    },
+    {
+        .disp_time = 500,
         .min_capacity = 40,
         .level_only = false,
         .surface = NULL,
     },
     {
-        .disp_time = 750,
+        .disp_time = 500,
+        .min_capacity = 50,
+        .level_only = false,
+        .surface = NULL,
+    },
+    {
+        .disp_time = 500,
         .min_capacity = 60,
         .level_only = false,
         .surface = NULL,
     },
     {
-        .disp_time = 750,
+        .disp_time = 500,
+        .min_capacity = 70,
+        .level_only = false,
+        .surface = NULL,
+    },
+    {
+        .disp_time = 500,
         .min_capacity = 80,
+        .level_only = false,
+        .surface = NULL,
+    },
+    {
+        .disp_time = 500,
+        .min_capacity = 90,
         .level_only = true,
         .surface = NULL,
     },
     {
-        .disp_time = 750,
+        .disp_time = 500,
         .min_capacity = BATTERY_FULL_THRESH,
         .level_only = false,
         .surface = NULL,
