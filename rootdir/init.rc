@@ -414,7 +414,7 @@ on boot
     chown root radio /proc/cmdline
 
     chown system system /persist/phoneid.bin
-
+    chmod 0666 /persist/phoneid.bin
     # Define default initial receive window size in segments.
     setprop net.tcp.default_init_rwnd 60
 
