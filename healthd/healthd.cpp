@@ -332,6 +332,71 @@ static int healthd_init() {
     return 0;
 }
 
+// OEM start
+static int is_usb_charger_valid()
+{
+    const char *usb_charger_path = "/sys/kernel/debug/msm_otg/chg_type";
+    char buf[32] = {'\0'};
+    int fd = 0;
+    int open_count = 3;
+    int sleep_count = 0;
+
+    while ((fd <= 0) && (open_count-- > 0)) {
+	fd = open(usb_charger_path, O_RDONLY);
+	if (fd > 0) {
+	    break;
+	}
+	usleep(100000);
+    }
+    if (fd > 0) {
+	while (!strstr(buf, "USB")  && (sleep_count <= 20)) {
+	    read(fd, buf, 32);
+	    if (strstr(buf, "USB")) {
+		close(fd);
+	        return 1;
+	    } else {
+	        usleep(100000);
+	    }
+	    sleep_count++;
+	}
+    } else {
+	sleep(2);
+    }
+    return 0;
+}
+
+static void wait_for_usb_ps_ok()
+{
+    const char *usb_ps_online = "/sys/class/power_supply/usb/online";
+    char buf[8] = {'\0'};
+    int fd = 0;
+    int open_count = 3;
+    int sleep_count = 0;
+
+    while ((fd <= 0) && (open_count-- > 0)) {
+	fd = open(usb_ps_online, O_RDONLY);
+	if (fd > 0) {
+	    break;
+	}
+	usleep(100000);
+    }
+    if (fd > 0) {
+	while ((buf[0] != '1') && (sleep_count <= 20)) {
+	    read(fd, buf, 2);
+	    if (buf[0] == '1') {
+		close(fd);
+	        return;
+	    } else {
+	        usleep(100000);
+	    }
+	    sleep_count++;
+	}
+    } else {
+	sleep(2);
+    }
+}
+// OEM end
+
 int main(int argc, char **argv) {
     int ch;
     int ret;
@@ -371,6 +436,12 @@ int main(int argc, char **argv) {
         }
     }
 
+    // OEM start
+    if (!strcmp(basename(argv[0]), "charger") &&
+	is_usb_charger_valid()) {
+	wait_for_usb_ps_ok();
+    }
+    // OEM end
     ret = healthd_init();
     if (ret) {
         KLOG_ERROR("Initialization failed, exiting\n");
