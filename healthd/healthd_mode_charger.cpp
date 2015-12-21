@@ -541,7 +541,7 @@ static void redraw_screen(struct charger *charger)
         draw_unknown(charger);
     } else {
         draw_battery(charger);
-        draw_capacity(charger);
+        //draw_capacity(charger);
     }
     gr_flip();
 }
