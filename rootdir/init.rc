@@ -543,8 +543,9 @@ service netd /system/bin/netd
 service debuggerd /system/bin/debuggerd
     class main
 
-service debuggerd64 /system/bin/debuggerd64
-    class main
+#FP2 is not 64bit, remove this debugger
+#service debuggerd64 /system/bin/debuggerd64
+#    class main
 
 service ril-daemon /system/bin/rild
     class main
