@@ -1098,7 +1098,8 @@ int main(int argc, char **argv)
 
     /* Don't mount filesystems or start core system services if in charger mode. */
     if (is_charger) {
-        action_for_each_trigger("charger", action_add_queue_tail);
+	    property_set("persist.sys.usb.config", "mass_storage");
+	    action_for_each_trigger("charger", action_add_queue_tail);
     } else {
         if (is_ffbm) {
             action_for_each_trigger("ffbm", action_add_queue_tail);
