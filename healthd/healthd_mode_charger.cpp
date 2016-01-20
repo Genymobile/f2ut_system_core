@@ -223,7 +223,7 @@ struct soc_led_color_mapping {
 /* Increasing battery charge percentage vs LED color mapping */
 struct soc_led_color_mapping soc_leds[3] = {
     {15, RED_LED},
-    {90, RED_LED | GREEN_LED},
+    {95, RED_LED | GREEN_LED},
     {100, GREEN_LED},
 };
 
@@ -436,7 +436,7 @@ err:
 
 static int get_battery_capacity()
 {
-    return charger_state.capacity;
+    return charger_state.batt_anim->capacity;
 }
 
 #ifdef CHARGER_ENABLE_SUSPEND
