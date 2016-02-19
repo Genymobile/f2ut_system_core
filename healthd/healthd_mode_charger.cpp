@@ -436,7 +436,7 @@ err:
 
 static int get_battery_capacity()
 {
-    return charger_state.batt_anim->capacity;
+    return charger_state.capacity;
 }
 
 #ifdef CHARGER_ENABLE_SUSPEND
@@ -847,6 +847,8 @@ void healthd_mode_charger_battery_update(
     charger->charger_connected =
         props->chargerAcOnline || props->chargerUsbOnline ||
         props->chargerWirelessOnline;
+
+    charger->capacity = props->batteryLevel;
 
     if (!charger->have_battery_state) {
         charger->have_battery_state = true;
