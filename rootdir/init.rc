@@ -7,7 +7,6 @@
 import /init.environ.rc
 import /init.usb.rc
 import /init.${ro.hardware}.rc
-import /init.${ro.zygote}.rc
 import /init.trace.rc
 
 on early-init
