@@ -4,7 +4,7 @@
 # This is a common source of Android security bugs.
 #
 
-import /init.environ.rc
+#import /init.environ.rc
 import /init.usb.rc
 import /init.${ro.hardware}.rc
 import /init.trace.rc
@@ -559,11 +559,13 @@ service surfaceflinger /system/bin/surfaceflinger
     user system
     group graphics drmrpc
     onrestart restart zygote
+    disabled
 
 service drm /system/bin/drmserver
     class main
     user drm
     group drm system inet drmrpc
+    disabled
 
 service media /system/bin/mediaserver
     class main
@@ -595,6 +597,7 @@ service bootanim /system/bin/bootanimation
 service installd /system/bin/installd
     class main
     socket installd stream 600 system system
+    disabled
 
 service flash_recovery /system/bin/install-recovery.sh
     class main
