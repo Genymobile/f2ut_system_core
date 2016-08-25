@@ -247,13 +247,11 @@ static int read_request(int fd, debugger_request_t* out_request) {
 
   if (msg.action == DEBUGGER_ACTION_CRASH) {
     // Ensure that the tid reported by the crashing process is valid.
-    char buf[64];
-    struct stat s;
     enable_etb_trace(cr);
-    snprintf(buf, sizeof buf, "/proc/%d/task/%d", out_request->pid, out_request->tid);
-    if (stat(buf, &s)) {
-      ALOGE("tid %d does not exist in pid %d. ignoring debug request\n",
-          out_request->tid, out_request->pid);
+    // This check needs to happen again after ptracing the requested thread to prevent a race.
+    if (!pid_contains_tid(out_request->pid, out_request->tid)) {
+      ALOGE("tid %d does not exist in pid %d. ignoring debug request\n", out_request->tid,
+           out_request->pid);
       return -1;
     }
   } else if (cr.uid == 0
