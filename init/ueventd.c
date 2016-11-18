@@ -22,7 +22,7 @@
 #include <ctype.h>
 #include <signal.h>
 #include <selinux/selinux.h>
-#include <sys/sockets.h>
+#include <sys/socket.h>
 
 #include <private/android_filesystem_config.h>
 
