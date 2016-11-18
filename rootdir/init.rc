@@ -554,12 +554,13 @@ service miniafservice /system/bin/miniafservice
     user root
     group audio
 
-service ril-daemon /system/bin/rild
+service ril-daemon /system/bin/rild 
     class main
     socket rild stream 660 root radio
     socket rild-debug stream 660 radio system
     user root
-    group radio cache inet misc audio log qcom_diag
+    #group radio cache inet misc audio sdcard_rw qcom_diag log
+    group radio cache inet misc audio sdcard_r sdcard_rw diag qcom_diag log
 
 service surfaceflinger /system/bin/surfaceflinger
     class core

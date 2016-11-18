@@ -1145,8 +1145,11 @@ void device_init(void)
         selinux_status_open(true);
     }
 
-    /* is 256K enough? udev uses 16MB! */
-    device_fd = uevent_open_socket(256*1024, true);
+    /* There can be peaks of udev events on boot that require a big buffer, so
+     * we use here the maximum possible size. Note that the memory is not
+     * actually allocated unless it is really needed. This is the same udevd
+     * does. */
+    device_fd = uevent_open_socket(128*1024*1024, true);
     if(device_fd < 0)
         return;
 
