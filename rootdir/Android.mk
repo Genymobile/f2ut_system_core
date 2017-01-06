@@ -37,7 +37,7 @@ $(bcp_dep) :
 	$(hide) mkdir -p $(dir $@) && rm -rf $(dir $@)*.bcp.dep && touch $@
 
 ifneq ($(strip $(TARGET_LDPRELOAD)),)
-    TARGET_LDPRELOAD_STR := :$(TARGET_LDPRELOAD)
+    TARGET_LDPRELOAD_STR := $(TARGET_LDPRELOAD)
 endif
 
 $(LOCAL_BUILT_MODULE): $(LOCAL_PATH)/init.environ.rc.in $(bcp_dep)
