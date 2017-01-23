@@ -58,6 +58,7 @@ on init
     write /sys/fs/cgroup/memory/sw/memory.move_charge_at_immigrate 1
     chown root system /sys/fs/cgroup/memory/sw/tasks
     chmod 0660 /sys/fs/cgroup/memory/sw/tasks
+    chmod 0220 /sys/fs/cgroup/memory/cgroup.event_control
 
     mkdir /system
     mkdir /data 0771 system system
@@ -249,6 +250,7 @@ on post-fs-data
     # create basic filesystem structure
     mkdir /data/misc 01771 system misc
     mkdir /data/misc/adb 02750 system shell
+    mkdir /data/misc/audit 02750 audit system
     mkdir /data/misc/bluedroid 0770 bluetooth net_bt_stack
     mkdir /data/misc/bluetooth 0770 system system
     mkdir /data/misc/keystore 0700 keystore keystore
@@ -280,7 +282,6 @@ on post-fs-data
     mkdir /data/app-lib 0771 system system
     mkdir /data/app 0771 system system
     mkdir /data/property 0700 root root
-    mkdir /data/tombstones 0771 system system
 
     # create dalvik-cache, so as to enforce our permissions
     mkdir /data/dalvik-cache 0771 root root
@@ -315,12 +316,18 @@ on post-fs-data
 
     # Set SELinux security contexts on upgrade or policy update.
     restorecon_recursive /data
+    restorecon /data/data
+    restorecon /data/user
+    restorecon /data/user/0
 
     # If there is no fs-post-data action in the init.<device>.rc file, you
     # must uncomment this line, otherwise encrypted filesystems
     # won't work.
     # Set indication (checked by vold) that we have finished this action
     #setprop vold.post_fs_data_done 1
+
+on early-boot
+    start upstart-watcher
 
 on boot
     # basic network init
@@ -490,13 +497,20 @@ service healthd /sbin/healthd
     critical
     seclabel u:r:healthd:s0
 
+service upstart-watcher /sbin/upstart-property-watcher
+    class core
+
 service console /system/bin/sh
     class core
     console
     disabled
-    user shell
+    user root
     group shell log
     seclabel u:r:shell:s0
+
+service auditd /system/bin/auditd -k
+    seclabel u:r:logd:s0
+    class main
 
 on property:ro.debuggable=1
     start console
@@ -528,24 +542,17 @@ service servicemanager /system/bin/servicemanager
     onrestart restart surfaceflinger
     onrestart restart drm
 
-service vold /system/bin/vold
-    class core
-    socket vold stream 0660 root mount
-    ioprio be 2
-
-service netd /system/bin/netd
-    class main
-    socket netd stream 0660 root system
-    socket dnsproxyd stream 0660 root inet
-    socket mdns stream 0660 root system
-    socket fwmarkd stream 0660 root inet
-
 service debuggerd /system/bin/debuggerd
     class main
 
 #FP2 is not 64bit, remove this debugger
 #service debuggerd64 /system/bin/debuggerd64
 #    class main
+
+service miniafservice /system/bin/miniafservice
+    class core
+    user root
+    group audio
 
 service ril-daemon /system/bin/rild
     class main
@@ -573,27 +580,6 @@ service media /system/bin/mediaserver
     group audio camera inet net_bt net_bt_admin net_bw_acct drmrpc mediadrm qcom_diag
     ioprio rt 4
 
-# One shot invocation to deal with encrypted volume.
-service defaultcrypto /system/bin/vdc --wait cryptfs mountdefaultencrypted
-    disabled
-    oneshot
-    # vold will set vold.decrypt to trigger_restart_framework (default
-    # encryption) or trigger_restart_min_framework (other encryption)
-
-# One shot invocation to encrypt unencrypted volumes
-service encrypt /system/bin/vdc --wait cryptfs enablecrypto inplace default
-    disabled
-    oneshot
-    # vold will set vold.decrypt to trigger_restart_framework (default
-    # encryption)
-
-service bootanim /system/bin/bootanimation
-    class core
-    user media
-    group graphics audio
-    disabled
-    oneshot
-
 service installd /system/bin/installd
     class main
     socket installd stream 600 system system
@@ -620,11 +606,6 @@ service mtpd /system/bin/mtpd
     disabled
     oneshot
 
-service keystore /system/bin/keystore /data/misc/keystore
-    class main
-    user keystore
-    group keystore drmrpc
-
 service dumpstate /system/bin/dumpstate -s
     class main
     socket dumpstate stream 0660 shell log
@@ -639,7 +620,13 @@ service mdnsd /system/bin/mdnsd
     disabled
     oneshot
 
-service pre-recovery /system/bin/uncrypt
+service sensorservice /system/bin/sensorservice
+    class late_start
+    user root
+    group root
+
+service ubuntuappmanager /system/bin/ubuntuappmanager
     class main
-    disabled
-    oneshot
+
+service ubuntuappmanager /system/bin/ubuntuappmanager
+    class main
