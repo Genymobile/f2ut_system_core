@@ -136,7 +136,7 @@ libbacktrace_test_src_files := \
 	backtrace_testlib.c \
 
 module := libbacktrace_test
-module_tag := debug
+module_tag := optional
 build_type := target
 build_target := SHARED_LIBRARY
 include $(LOCAL_PATH)/Android.build.mk
@@ -174,7 +174,7 @@ backtrace_test_static_libraries_host := \
 	libcutils \
 
 module := backtrace_test
-module_tag := debug
+module_tag := optional
 build_type := target
 build_target := NATIVE_TEST
 include $(LOCAL_PATH)/Android.build.mk

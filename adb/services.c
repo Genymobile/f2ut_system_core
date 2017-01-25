@@ -61,6 +61,8 @@ void restart_root_service(int fd, void *cookie)
 {
     char buf[100];
     char value[PROPERTY_VALUE_MAX];
+    char build_type[PROPERTY_VALUE_MAX];
+    char cm_version[PROPERTY_VALUE_MAX];
 
     if (getuid() == 0) {
         snprintf(buf, sizeof(buf), "adbd is already running as root\n");
@@ -70,6 +72,17 @@ void restart_root_service(int fd, void *cookie)
         property_get("ro.debuggable", value, "");
         if (strcmp(value, "1") != 0) {
             snprintf(buf, sizeof(buf), "adbd cannot run as root in production builds\n");
+            writex(fd, buf, strlen(buf));
+            adb_close(fd);
+            return;
+        }
+
+        property_get("persist.sys.root_access", value, "0");
+        property_get("ro.build.type", build_type, "");
+        property_get("ro.cm.version", cm_version, "");
+
+        if (strlen(cm_version) > 0 && strcmp(build_type, "eng") != 0 && (atoi(value) & 2) != 2) {
+            snprintf(buf, sizeof(buf), "root access is disabled by system setting - enable in settings -> development options\n");
             writex(fd, buf, strlen(buf));
             adb_close(fd);
             return;
@@ -301,8 +314,10 @@ static int create_subproc_raw(const char *cmd, const char *arg0, const char *arg
 
 #if ADB_HOST
 #define SHELL_COMMAND "/bin/sh"
+#define ALTERNATE_SHELL_COMMAND ""
 #else
 #define SHELL_COMMAND "/system/bin/sh"
+#define ALTERNATE_SHELL_COMMAND "/sbin/sh"
 #endif
 
 #if !ADB_HOST
@@ -344,6 +359,9 @@ static int create_subproc_thread(const char *name, const subproc_mode mode)
     int ret_fd;
     pid_t pid = -1;
 
+    const char* shell_command;
+    struct stat st;
+
     const char *arg0, *arg1;
     if (name == 0 || *name == 0) {
         arg0 = "-"; arg1 = 0;
@@ -351,12 +369,24 @@ static int create_subproc_thread(const char *name, const subproc_mode mode)
         arg0 = "-c"; arg1 = name;
     }
 
+    char value[PROPERTY_VALUE_MAX];
+    property_get("persist.sys.adb.shell", value, "");
+    if (value[0] != '\0' && stat(value, &st) == 0) {
+        shell_command = value;
+    }
+    else if (stat(ALTERNATE_SHELL_COMMAND, &st) == 0) {
+        shell_command = ALTERNATE_SHELL_COMMAND;
+    }
+    else {
+        shell_command = SHELL_COMMAND;
+    }
+
     switch (mode) {
     case SUBPROC_PTY:
-        ret_fd = create_subproc_pty(SHELL_COMMAND, arg0, arg1, &pid);
+        ret_fd = create_subproc_pty(shell_command, arg0, arg1, &pid);
         break;
     case SUBPROC_RAW:
-        ret_fd = create_subproc_raw(SHELL_COMMAND, arg0, arg1, &pid);
+        ret_fd = create_subproc_raw(shell_command, arg0, arg1, &pid);
         break;
     default:
         fprintf(stderr, "invalid subproc_mode %d\n", mode);
@@ -379,6 +409,13 @@ static int create_subproc_thread(const char *name, const subproc_mode mode)
 
     D("service thread started, fd=%d pid=%d\n", ret_fd, pid);
     return ret_fd;
+}
+#endif
+
+#if !ADB_HOST
+static const char* bu_path()
+{
+    return (recovery_mode ? "/sbin/bu" : "/system/bin/bu");
 }
 #endif
 
@@ -444,13 +481,17 @@ int service_to_fd(const char *name)
                 *c = ' ';
         }
         char* cmd;
-        if (asprintf(&cmd, "/system/bin/bu backup %s", arg) != -1) {
+        if (asprintf(&cmd, "%s backup %s", bu_path(), arg) != -1) {
             ret = create_subproc_thread(cmd, SUBPROC_RAW);
             free(cmd);
         }
         free(arg);
     } else if(!strncmp(name, "restore:", 8)) {
-        ret = create_subproc_thread("/system/bin/bu restore", SUBPROC_RAW);
+        char* cmd;
+        if (asprintf(&cmd, "%s restore", bu_path()) != -1) {
+            ret = create_subproc_thread(cmd, SUBPROC_RAW);
+            free(cmd);
+        }
     } else if(!strncmp(name, "tcpip:", 6)) {
         int port;
         if (sscanf(name + 6, "%d", &port) == 0) {
@@ -650,6 +691,15 @@ asocket*  host_service_to_socket(const char*  name, const char *serial)
         } else if (!strncmp(name, "any", strlen("any"))) {
             sinfo->transport = kTransportAny;
             sinfo->state = CS_DEVICE;
+        } else if (!strncmp(name, "sideload", strlen("sideload"))) {
+            sinfo->transport = kTransportAny;
+            sinfo->state = CS_SIDELOAD;
+        } else if (!strncmp(name, "recovery", strlen("recovery"))) {
+            sinfo->transport = kTransportAny;
+            sinfo->state = CS_RECOVERY;
+        } else if (!strncmp(name, "online", strlen("online"))) {
+            sinfo->transport = kTransportAny;
+            sinfo->state = CS_ONLINE;
         } else {
             free(sinfo);
             return NULL;

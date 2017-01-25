@@ -57,6 +57,7 @@
 #include "util.h"
 #include "ueventd.h"
 #include "watchdogd.h"
+#include "vendor_init.h"
 
 struct selabel_handle *sehandle;
 struct selabel_handle *sehandle_prop;
@@ -67,11 +68,17 @@ static int property_triggers_enabled = 0;
 static int   bootchart_count;
 #endif
 
+#ifndef BOARD_CHARGING_CMDLINE_NAME
+#define BOARD_CHARGING_CMDLINE_NAME "androidboot.battchg_pause"
+#define BOARD_CHARGING_CMDLINE_VALUE "true"
+#endif
+
 static char console[32];
 static char bootmode[32];
 static char hardware[32];
 static unsigned revision = 0;
 static char qemu[32];
+static char battchg_pause[32];
 
 static struct action *cur_action = NULL;
 static struct command *cur_command = NULL;
@@ -92,6 +99,8 @@ static char console_name[PROP_VALUE_MAX] = "/dev/console";
 static time_t process_needs_restart;
 
 static const char *ENV[32];
+
+static unsigned charging_mode = 0;
 
 /* add_environment - add "key=value" to the current environment */
 int add_environment(const char *key, const char *val)
@@ -247,6 +256,9 @@ void service_start(struct service *svc, const char *dynamic_args)
     }
 
     NOTICE("starting '%s'\n", svc->name);
+
+    if (properties_inited())
+        notify_service_state(svc->name, "starting");
 
     pid = fork();
 
@@ -503,6 +515,9 @@ static void msg_restart(const char *name)
 
 void handle_control_message(const char *msg, const char *arg)
 {
+    if (!vendor_handle_control_message(msg, arg))
+        return;
+
     if (!strcmp(msg,"start")) {
         msg_start(arg);
     } else if (!strcmp(msg,"stop")) {
@@ -728,6 +743,8 @@ static void import_kernel_nv(char *name, int for_emulator)
 
     if (!strcmp(name,"qemu")) {
         strlcpy(qemu, value, sizeof(qemu));
+    } else if (!strcmp(name,BOARD_CHARGING_CMDLINE_NAME)) {
+        strlcpy(battchg_pause, value, sizeof(battchg_pause));
     } else if (!strncmp(name, "androidboot.", 12) && name_len > 12) {
         const char *boot_prop_name = name + 12;
         char prop[PROP_NAME_MAX];
@@ -763,9 +780,11 @@ static void export_kernel_boot_props(void)
             property_set(prop_map[i].dest_prop, prop_map[i].def_val);
     }
 
-    ret = property_get("ro.boot.console", tmp);
-    if (ret)
-        strlcpy(console, tmp, sizeof(console));
+    /* XXX: Ubuntu specific, we don't want the Android
+     * container to  use the real console device */
+    //ret = property_get("ro.boot.console", tmp);
+    //if (ret)
+    //    strlcpy(console, tmp, sizeof(console));
 
     /* save a copy for init's usage during boot */
     property_get("ro.bootmode", tmp);
@@ -844,7 +863,7 @@ static int queue_property_triggers_action(int nargs, char **args)
 }
 
 #if BOOTCHART
-static int bootchart_init_action(int nargs, char **args)
+int bootchart_init_action(int nargs, char **args)
 {
     bootchart_count = bootchart_init();
     if (bootchart_count < 0) {
@@ -998,6 +1017,25 @@ static void selinux_initialize(void)
     security_setenforce(is_enforcing);
 }
 
+static int charging_mode_booting(void)
+{
+#ifndef BOARD_CHARGING_MODE_BOOTING_LPM
+    return 0;
+#else
+    int f;
+    char cmb;
+    f = open(BOARD_CHARGING_MODE_BOOTING_LPM, O_RDONLY);
+    if (f < 0)
+        return 0;
+
+    if (1 != read(f, (void *)&cmb,1))
+        return 0;
+
+    close(f);
+    return ('1' == cmb);
+#endif
+}
+
 int main(int argc, char **argv)
 {
     int fd_count = 0;
@@ -1009,6 +1047,7 @@ int main(int argc, char **argv)
     int signal_fd_init = 0;
     int keychord_fd_init = 0;
     bool is_charger = false;
+    struct stat s;
     bool is_ffbm = false;
 
     if (!strcmp(basename(argv[0]), "ueventd"))
@@ -1024,14 +1063,17 @@ int main(int argc, char **argv)
          * together in the initramdisk on / and then we'll
          * let the rc file figure out the rest.
          */
-    mkdir("/dev", 0755);
-    mkdir("/proc", 0755);
-    mkdir("/sys", 0755);
+    if (stat("/sbin/recovery", &s) == 0) {
+        /* Only create and mount everything if we're in recovery mode */
+        mkdir("/dev", 0755);
+        mkdir("/proc", 0755);
+        mkdir("/sys", 0755);
 
-    mount("tmpfs", "/dev", "tmpfs", MS_NOSUID, "mode=0755");
-    mkdir("/dev/pts", 0755);
-    mkdir("/dev/socket", 0755);
-    mount("devpts", "/dev/pts", "devpts", 0, NULL);
+        mount("tmpfs", "/dev", "tmpfs", MS_NOSUID, "mode=0755");
+        mkdir("/dev/pts", 0755);
+        mkdir("/dev/socket", 0755);
+        mount("devpts", "/dev/pts", "devpts", 0, NULL);
+    }
     mount("proc", "/proc", "proc", 0, NULL);
     mount("sysfs", "/sys", "sysfs", 0, NULL);
 
@@ -1071,7 +1113,7 @@ int main(int argc, char **argv)
 
     is_ffbm = !strncmp(bootmode, "ffbm", 4);
     if (!is_ffbm)
-        is_charger = !strcmp(bootmode, "charger");
+        is_charger = !strcmp(bootmode, "charger") || charging_mode_booting();
 
     INFO("property init\n");
     property_load_boot_defaults();
@@ -1096,10 +1138,14 @@ int main(int argc, char **argv)
     queue_builtin_action(property_service_init_action, "property_service_init");
     queue_builtin_action(signal_init_action, "signal_init");
 
+    /* Older bootloaders use non-standard charging modes. Check for
+     * those now, after mounting the filesystems */
+    if (strcmp(battchg_pause, BOARD_CHARGING_CMDLINE_VALUE) == 0)
+        is_charger = 1;
+
     /* Don't mount filesystems or start core system services if in charger mode. */
     if (is_charger) {
-	    property_set("persist.sys.usb.config", "mass_storage");
-	    action_for_each_trigger("charger", action_add_queue_tail);
+        action_for_each_trigger("charger", action_add_queue_tail);
     } else {
         if (is_ffbm) {
             action_for_each_trigger("ffbm", action_add_queue_tail);
@@ -1109,11 +1155,6 @@ int main(int argc, char **argv)
     }
     /* run all property triggers based on current state of the properties */
     queue_builtin_action(queue_property_triggers_action, "queue_property_triggers");
-
-
-#if BOOTCHART
-    queue_builtin_action(bootchart_init_action, "bootchart_init");
-#endif
 
     for(;;) {
         int nr, i, timeout = -1;

@@ -30,11 +30,9 @@
 #define  TRACE_TAG  TRACE_SOCKETS
 #include "adb.h"
 
-#if defined(__BIONIC__)
-#define PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP PTHREAD_RECURSIVE_MUTEX_INITIALIZER
-#endif
+ADB_MUTEX_DEFINE( socket_list_lock );
 
-static pthread_mutex_t socket_list_lock = PTHREAD_RECURSIVE_MUTEX_INITIALIZER_NP;
+static void local_socket_close_locked(asocket *s);
 
 int sendfailmsg(int fd, const char *reason)
 {
@@ -73,7 +71,7 @@ asocket *find_local_socket(unsigned local_id, unsigned peer_id)
     asocket *s;
     asocket *result = NULL;
 
-    pthread_mutex_lock(&socket_list_lock);
+    adb_mutex_lock(&socket_list_lock);
     for (s = local_socket_list.next; s != &local_socket_list; s = s->next) {
         if (s->id != local_id)
             continue;
@@ -82,7 +80,7 @@ asocket *find_local_socket(unsigned local_id, unsigned peer_id)
         }
         break;
     }
-    pthread_mutex_unlock(&socket_list_lock);
+    adb_mutex_unlock(&socket_list_lock);
 
     return result;
 }
@@ -99,7 +97,7 @@ insert_local_socket(asocket*  s, asocket*  list)
 
 void install_local_socket(asocket *s)
 {
-    pthread_mutex_lock(&socket_list_lock);
+    adb_mutex_lock(&socket_list_lock);
 
     s->id = local_socket_next_id++;
 
@@ -109,7 +107,7 @@ void install_local_socket(asocket *s)
 
     insert_local_socket(s, &local_socket_list);
 
-    pthread_mutex_unlock(&socket_list_lock);
+    adb_mutex_unlock(&socket_list_lock);
 }
 
 void remove_socket(asocket *s)
@@ -132,15 +130,15 @@ void close_all_sockets(atransport *t)
         /* this is a little gross, but since s->close() *will* modify
         ** the list out from under you, your options are limited.
         */
-    pthread_mutex_lock(&socket_list_lock);
+    adb_mutex_lock(&socket_list_lock);
 restart:
     for(s = local_socket_list.next; s != &local_socket_list; s = s->next){
         if(s->transport == t || (s->peer && s->peer->transport == t)) {
-            s->close(s);
+            local_socket_close_locked(s);
             goto restart;
         }
     }
-    pthread_mutex_unlock(&socket_list_lock);
+    adb_mutex_unlock(&socket_list_lock);
 }
 
 static int local_socket_enqueue(asocket *s, apacket *p)
@@ -204,6 +202,13 @@ static void local_socket_ready(asocket *s)
 //    D("LS(%d): ready()\n", s->id);
 }
 
+static void local_socket_close(asocket *s)
+{
+    adb_mutex_lock(&socket_list_lock);
+    local_socket_close_locked(s);
+    adb_mutex_unlock(&socket_list_lock);
+}
+
 // be sure to hold the socket list lock when calling this
 static void local_socket_destroy(asocket  *s)
 {
@@ -233,9 +238,8 @@ static void local_socket_destroy(asocket  *s)
 }
 
 
-static void local_socket_close(asocket *s)
+static void local_socket_close_locked(asocket *s)
 {
-    pthread_mutex_lock(&socket_list_lock);
     D("entered. LS(%d) fd=%d\n", s->id, s->fd);
     if(s->peer) {
         D("LS(%d): closing peer. peer->id=%d peer->fd=%d\n",
@@ -247,7 +251,12 @@ static void local_socket_close(asocket *s)
         if (s->peer->shutdown)
           s->peer->shutdown(s->peer);
         s->peer->peer = 0;
-        s->peer->close(s->peer);
+        // tweak to avoid deadlock
+        if (s->peer->close == local_socket_close) {
+            local_socket_close_locked(s->peer);
+        } else {
+            s->peer->close(s->peer);
+        }
         s->peer = 0;
     }
 
@@ -258,7 +267,6 @@ static void local_socket_close(asocket *s)
         int   id = s->id;
         local_socket_destroy(s);
         D("LS(%d): closed\n", id);
-        pthread_mutex_unlock(&socket_list_lock);
         return;
     }
 
@@ -270,7 +278,6 @@ static void local_socket_close(asocket *s)
     remove_socket(s);
     D("LS(%d): put on socket_closing_list fd=%d\n", s->id, s->fd);
     insert_local_socket(s, &local_socket_closing_list);
-    pthread_mutex_unlock(&socket_list_lock);
 }
 
 static void local_socket_event_func(int fd, unsigned ev, void *_s)

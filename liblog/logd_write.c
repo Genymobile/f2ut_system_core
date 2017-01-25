@@ -35,6 +35,12 @@
 #include <android/set_abort_message.h>
 #endif
 
+#if defined(MOTOROLA_LOG) || defined(MTK_HARDWARE)
+#if HAVE_LIBC_SYSTEM_PROPERTIES
+#include <sys/system_properties.h>
+#endif
+#endif
+
 #include <log/logd.h>
 #include <log/logger.h>
 #include <log/log_read.h>
@@ -82,6 +88,95 @@ int __android_log_dev_available(void)
 
     return (g_log_status == kLogAvailable);
 }
+
+#ifdef MOTOROLA_LOG
+/* Fallback when there is neither log.tag.<tag> nor log.tag.DEFAULT.
+ * this is compile-time defaulted to "info". The log startup code
+ * looks at the build tags to see about whether it should be DEBUG...
+ * -- just as is done in frameworks/base/core/jni/android_util_Log.cpp
+ */
+static int prio_fallback = ANDROID_LOG_INFO;
+
+/*
+ * public interface so native code can see "should i log this"
+ * and behave similar to java Log.isLoggable() calls.
+ *
+ * NB: we have (level,tag) here to match the other __android_log entries.
+ * The Java side uses (tag,level) for its ordering.
+ * since the args are (int,char*) vs (char*,char*) we won't get strange
+ * swapped-the-strings errors.
+ */
+
+#define	LOGGING_PREFIX	"log.tag."
+#define	LOGGING_DEFAULT	"log.tag.DEFAULT"
+
+int __android_log_loggable(int prio, const char *tag)
+{
+    int nprio;
+
+#if HAVE_LIBC_SYSTEM_PROPERTIES
+    char keybuf[PROP_NAME_MAX];
+    char results[PROP_VALUE_MAX];
+    int n;
+
+    /* we can NOT cache the log.tag.<tag> and log.tag.DEFAULT
+     * values because either one can be changed dynamically.
+     *
+     * damn, says the performance compulsive.
+     */
+
+    n = 0;
+    results[0] = '\0';
+    if (tag) {
+        memcpy (keybuf, LOGGING_PREFIX, strlen (LOGGING_PREFIX) + 1);
+        /* watch out for buffer overflow */
+        strncpy (keybuf + strlen (LOGGING_PREFIX), tag,
+                sizeof (keybuf) - strlen (LOGGING_PREFIX));
+        keybuf[sizeof (keybuf) - 1] = '\0';
+        n = __system_property_get (keybuf, results);
+    }
+    if (n == 0) {
+        /* nothing yet, look for the global */
+        memcpy (keybuf, LOGGING_DEFAULT, sizeof (LOGGING_DEFAULT));
+        n = __system_property_get (keybuf, results);
+    }
+
+    if (n == 0) {
+        nprio = prio_fallback;
+    } else {
+        switch (results[0]) {
+            case 'E':
+                nprio = ANDROID_LOG_ERROR;
+                break;
+            case 'W':
+                nprio = ANDROID_LOG_WARN;
+                break;
+            case 'I':
+                nprio = ANDROID_LOG_INFO;
+                break;
+            case 'D':
+                nprio = ANDROID_LOG_DEBUG;
+                break;
+            case 'V':
+                nprio = ANDROID_LOG_VERBOSE;
+                break;
+            case 'S':
+                nprio = ANDROID_LOG_SILENT;
+                break;
+            default:
+                /* unspecified or invalid */
+                nprio = prio_fallback;
+                break;
+        }
+    }
+#else
+    /* no system property routines, fallback to a default */
+    nprio = prio_fallback;
+#endif
+
+    return ((prio >= nprio) ? 1 : 0);
+}
+#endif
 
 #if !FAKE_LOG_DEVICE
 /* give up, resources too limited */
@@ -282,45 +377,6 @@ const char *android_log_id_to_name(log_id_t log_id)
 }
 #endif
 
-/*
- * Release any logger resources. A new log write will immediately re-acquire.
- */
-void __android_log_close()
-{
-#if FAKE_LOG_DEVICE
-    int i;
-#endif
-
-#ifdef HAVE_PTHREADS
-    pthread_mutex_lock(&log_init_lock);
-#endif
-
-    write_to_log = __write_to_log_init;
-
-    /*
-     * Threads that are actively writing at this point are not held back
-     * by a lock and are at risk of dropping the messages with a return code
-     * -EBADF. Prefer to return error code than add the overhead of a lock to
-     * each log writing call to guarantee delivery. In addition, anyone
-     * calling this is doing so to release the logging resources and shut down,
-     * for them to do so with outstanding log requests in other threads is a
-     * disengenuous use of this function.
-     */
-#if FAKE_LOG_DEVICE
-    for (i = 0; i < LOG_ID_MAX; i++) {
-        fakeLogClose(log_fds[i]);
-        log_fds[i] = -1;
-    }
-#else
-    close(logd_fd);
-    logd_fd = -1;
-#endif
-
-#ifdef HAVE_PTHREADS
-    pthread_mutex_unlock(&log_init_lock);
-#endif
-}
-
 static int __write_to_log_init(log_id_t log_id, struct iovec *vec, size_t nr)
 {
 #ifdef HAVE_PTHREADS
@@ -347,6 +403,50 @@ static int __write_to_log_init(log_id_t log_id, struct iovec *vec, size_t nr)
 
     return write_to_log(log_id, vec, nr);
 }
+
+#ifdef AMAZON_LOG
+int lab126_log_write(int bufID, int prio, const char *tag, const char *fmt, ...)
+{
+	va_list ap;
+	char buf[LOG_BUF_SIZE];
+	int _a = bufID;
+	int _b = prio;
+
+	// skip flooding logs
+	if (!tag)
+	{
+		tag = "";
+	}
+	if( strncmp(tag, "Sensors", 7) == 0
+		||  strncmp(tag, "qcom_se", 7) == 0 )
+	{
+		return 0;
+	}
+	// skip flooding logs
+
+	va_start(ap, fmt);
+	vsnprintf(buf, LOG_BUF_SIZE, fmt, ap);
+	va_end(ap);
+
+	char new_tag[128];
+	snprintf(new_tag, sizeof(new_tag), "AMZ-%s", tag);
+
+	return __android_log_buf_write(LOG_ID_MAIN, ANDROID_LOG_DEBUG, new_tag, buf);
+}
+
+int __vitals_log_print(int bufID, int prio, const char *tag, const char *fmt, ...)
+{
+	va_list ap;
+	char buf[LOG_BUF_SIZE];
+	int _a = bufID;
+	int _b = prio;
+
+	va_start(ap, fmt);
+	va_end(ap);
+
+	return __android_log_write(ANDROID_LOG_DEBUG, tag, "__vitals_log_print not implemented");
+}
+#endif
 
 int __android_log_write(int prio, const char *tag, const char *msg)
 {
@@ -536,3 +636,44 @@ int __android_log_bswrite(int32_t tag, const char *payload)
 
     return write_to_log(LOG_ID_EVENTS, vec, 4);
 }
+
+#ifdef MTK_HARDWARE
+struct xlog_record {
+    const char *tag_str;
+    const char *fmt_str;
+    int prio;
+};
+
+void __attribute__((weak)) __xlog_buf_printf(int bufid, const struct xlog_record *xlog_record, ...) {
+    va_list args;
+    va_start(args, xlog_record);
+#if    HAVE_LIBC_SYSTEM_PROPERTIES
+    int len = 0;
+    int do_xlog = 0;
+    char results[PROP_VALUE_MAX];
+
+
+    // MobileLog
+    len = __system_property_get ("debug.MB.running", results);
+    if (len && atoi(results))
+        do_xlog = 1;
+
+    // ModemLog
+    len = __system_property_get ("debug.mdlogger.Running", results);
+    if (len && atoi(results))
+        do_xlog = 1;
+
+    // Manual
+    len = __system_property_get ("persist.debug.xlog.enable", results);
+    if (len && atoi(results))
+        do_xlog = 1;
+
+    if (do_xlog > 0)
+#endif
+        __android_log_vprint(xlog_record->prio, xlog_record->tag_str, xlog_record->fmt_str, args);
+
+    // get rid of "unused parameter 'bufid'"
+    bufid = bufid;
+    return;
+}
+#endif

@@ -55,26 +55,27 @@ LOCAL_STATIC_LIBRARIES := \
     libunz \
     libext4_utils_host \
     libsparse_host \
-    libz
+    libz \
+    liblz4-host
 
 ifneq ($(HOST_OS),windows)
 LOCAL_STATIC_LIBRARIES += libselinux
 endif # HOST_OS != windows
 
-ifeq ($(HOST_OS),linux)
+ifneq (,$(filter linux darwin,$(HOST_OS)))
 # libf2fs_dlutils_host will dlopen("libf2fs_fmt_host_dyn")
 LOCAL_CFLAGS += -DUSE_F2FS
 LOCAL_LDFLAGS += -ldl -rdynamic -Wl,-rpath,.
 LOCAL_REQUIRED_MODULES := libf2fs_fmt_host_dyn
 # The following libf2fs_* are from system/extras/f2fs_utils,
 # and do not use code in external/f2fs-tools.
-LOCAL_STATIC_LIBRARIES += libf2fs_utils_host libf2fs_ioutils_host libf2fs_dlutils_host
+LOCAL_STATIC_LIBRARIES += libf2fs_utils_host libf2fs_dlutils_host
 endif
 
 include $(BUILD_HOST_EXECUTABLE)
 
 my_dist_files := $(LOCAL_BUILT_MODULE)
-ifeq ($(HOST_OS),linux)
+ifneq (,$(filter linux darwin,$(HOST_OS)))
 my_dist_files += $(HOST_LIBRARY_PATH)/libf2fs_fmt_host_dyn$(HOST_SHLIB_SUFFIX)
 endif
 $(call dist-for-goals,dist_files sdk,$(my_dist_files))

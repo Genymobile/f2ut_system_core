@@ -35,10 +35,14 @@
 #include <cutils/partition_utils.h>
 #include <cutils/properties.h>
 #include <logwrap/logwrap.h>
+#include <blkid/blkid.h>
 
 #include "mincrypt/rsa.h"
 #include "mincrypt/sha.h"
 #include "mincrypt/sha256.h"
+
+#include "ext4_utils.h"
+#include "wipe.h"
 
 #include "fs_mgr_priv.h"
 #include "fs_mgr_priv_verity.h"
@@ -53,6 +57,7 @@
 #define FSCK_LOG_FILE   "/dev/fscklogs/log"
 
 #define ZRAM_CONF_DEV   "/sys/block/zram0/disksize"
+#define ZRAM_STREAMS    "/sys/block/zram0/max_comp_streams"
 
 #define ARRAY_SIZE(a) (sizeof(a) / sizeof(*(a)))
 
@@ -139,12 +144,12 @@ static void check_fs(char *blk_device, char *fs_type, char *target)
             }
         }
     } else if (!strcmp(fs_type, "f2fs")) {
-            char *f2fs_fsck_argv[] = {
-                    F2FS_FSCK_BIN,
-                    "-f",
-                    blk_device
-            };
-        INFO("Running %s -f %s\n", F2FS_FSCK_BIN, blk_device);
+        char *f2fs_fsck_argv[] = {
+            F2FS_FSCK_BIN,
+            "-a",
+            blk_device
+        };
+        INFO("Running %s on %s\n", F2FS_FSCK_BIN, blk_device);
 
         ret = android_fork_execvp_ext(ARRAY_SIZE(f2fs_fsck_argv), f2fs_fsck_argv,
                                       &status, true, LOG_KLOG | LOG_FILE,
@@ -281,6 +286,8 @@ static int mount_with_alternatives(struct fstab *fstab, int start_idx, int *end_
     int i;
     int mount_errno = 0;
     int mounted = 0;
+    int cmp_len;
+    char *detected_fs_type;
 
     if (!end_idx || !attempted_idx || start_idx >= fstab->num_entries) {
       errno = EINVAL;
@@ -306,8 +313,16 @@ static int mount_with_alternatives(struct fstab *fstab, int start_idx, int *end_
             }
 
             if (fstab->recs[i].fs_mgr_flags & MF_CHECK) {
-                check_fs(fstab->recs[i].blk_device, fstab->recs[i].fs_type,
-                         fstab->recs[i].mount_point);
+                /* Skip file system check unless we are sure we are the right type */
+                detected_fs_type = blkid_get_tag_value(NULL, "TYPE", fstab->recs[i].blk_device);
+                if (detected_fs_type) {
+                    cmp_len = (!strncmp(detected_fs_type, "ext", 3) &&
+                            strlen(detected_fs_type) == 4) ? 3 : strlen(detected_fs_type);
+                    if (!strncmp(fstab->recs[i].fs_type, detected_fs_type, cmp_len)) {
+                        check_fs(fstab->recs[i].blk_device, fstab->recs[i].fs_type,
+                                 fstab->recs[i].mount_point);
+                    }
+                }
             }
             if (!__mount(fstab->recs[i].blk_device, fstab->recs[i].mount_point, &fstab->recs[i])) {
                 *attempted_idx = i;
@@ -370,7 +385,8 @@ int fs_mgr_mount_all(struct fstab *fstab)
             wait_for_file(fstab->recs[i].blk_device, WAIT_TIMEOUT);
         }
 
-        if ((fstab->recs[i].fs_mgr_flags & MF_VERIFY) && device_is_secure() && !device_is_debuggable()) {
+        if ((fstab->recs[i].fs_mgr_flags & MF_VERIFY) && device_is_secure()) {
+            wait_for_file("/dev/device-mapper", WAIT_TIMEOUT);
             int rc = fs_mgr_setup_verity(&fstab->recs[i]);
             if (device_is_debuggable() && rc == FS_MGR_SETUP_VERITY_DISABLED) {
                 INFO("Verity disabled");
@@ -379,11 +395,9 @@ int fs_mgr_mount_all(struct fstab *fstab)
                 continue;
             }
         }
-        if ((fstab->recs[i].fs_mgr_flags & MF_VERIFY) && device_is_debuggable() ) {
-          INFO("Device is debuggable: Verity disabled");
-        }
-
         int last_idx_inspected;
+        int top_idx = i;
+
         mret = mount_with_alternatives(fstab, i, &last_idx_inspected, &attempted_idx);
         i = last_idx_inspected;
         mount_errno = errno;
@@ -413,10 +427,38 @@ int fs_mgr_mount_all(struct fstab *fstab)
             continue;
         }
 
-        /* mount(2) returned an error, check if it's encryptable and deal with it */
+        /* mount(2) returned an error, handle the encryptable/formattable case */
+        bool wiped = partition_wiped(fstab->recs[top_idx].blk_device);
+        if (mret && mount_errno != EBUSY && mount_errno != EACCES &&
+            fs_mgr_is_formattable(&fstab->recs[top_idx]) && wiped) {
+            /* top_idx and attempted_idx point at the same partition, but sometimes
+             * at two different lines in the fstab.  Use the top one for formatting
+             * as that is the preferred one.
+             */
+            ERROR("%s(): %s is wiped and %s %s is formattable. Format it.\n", __func__,
+                  fstab->recs[top_idx].blk_device, fstab->recs[top_idx].mount_point,
+                  fstab->recs[top_idx].fs_type);
+            if (fs_mgr_is_encryptable(&fstab->recs[top_idx]) &&
+                strcmp(fstab->recs[top_idx].key_loc, KEY_IN_FOOTER)) {
+                int fd = open(fstab->recs[top_idx].key_loc, O_WRONLY, 0644);
+                if (fd >= 0) {
+                    INFO("%s(): also wipe %s\n", __func__, fstab->recs[top_idx].key_loc);
+                    wipe_block_device(fd, get_file_size(fd));
+                    close(fd);
+                } else {
+                    ERROR("%s(): %s wouldn't open (%s)\n", __func__,
+                          fstab->recs[top_idx].key_loc, strerror(errno));
+                }
+            }
+            if (fs_mgr_do_format(&fstab->recs[top_idx]) == 0) {
+                /* Let's replay the mount actions. */
+                i = top_idx - 1;
+                continue;
+            }
+        }
         if (mret && mount_errno != EBUSY && mount_errno != EACCES &&
             fs_mgr_is_encryptable(&fstab->recs[attempted_idx])) {
-            if(partition_wiped(fstab->recs[attempted_idx].blk_device)) {
+            if (wiped) {
                 ERROR("%s(): %s is wiped and %s %s is encryptable. Suggest recovery...\n", __func__,
                       fstab->recs[attempted_idx].blk_device, fstab->recs[attempted_idx].mount_point,
                       fstab->recs[attempted_idx].fs_type);
@@ -495,7 +537,7 @@ int fs_mgr_do_mount(struct fstab *fstab, char *n_name, char *n_blk_device,
                      fstab->recs[i].mount_point);
         }
 
-        if ((fstab->recs[i].fs_mgr_flags & MF_VERIFY) && device_is_secure() && !device_is_debuggable()) {
+        if ((fstab->recs[i].fs_mgr_flags & MF_VERIFY) && device_is_secure()) {
             int rc = fs_mgr_setup_verity(&fstab->recs[i]);
             if (device_is_debuggable() && rc == FS_MGR_SETUP_VERITY_DISABLED) {
                 INFO("Verity disabled");
@@ -503,9 +545,6 @@ int fs_mgr_do_mount(struct fstab *fstab, char *n_name, char *n_blk_device,
                 ERROR("Could not set up verified partition, skipping!\n");
                 continue;
             }
-        }
-        if ((fstab->recs[i].fs_mgr_flags & MF_VERIFY) && device_is_debuggable() ) {
-          INFO("Device is debuggable: Verity disabled");
         }
 
         /* Now mount it where requested */
@@ -611,6 +650,14 @@ int fs_mgr_swapon_all(struct fstab *fstab)
              * we can assume the device number is 0.
              */
             FILE *zram_fp;
+
+            /* The stream count parameter is only available on new kernels.
+             * It must be set before the disk size. */
+            zram_fp = fopen(ZRAM_STREAMS, "r+");
+            if (zram_fp) {
+                fprintf(zram_fp, "%d\n", fstab->recs[i].zram_streams);
+                fclose(zram_fp);
+            }
 
             zram_fp = fopen(ZRAM_CONF_DEV, "r+");
             if (zram_fp == NULL) {

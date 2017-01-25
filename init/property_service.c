@@ -12,25 +12,6 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
  * See the License for the specific language governing permissions and
  * limitations under the License.
- *
- * This file was modified by Dolby Laboratories, Inc. The portions of the
- * code that are surrounded by "DOLBY..." are copyrighted and
- * licensed separately, as follows:
- *
- *  (C) 2011-2013 Dolby Laboratories, Inc.
- *
- * Licensed under the Apache License, Version 2.0 (the "License");
- * you may not use this file except in compliance with the License.
- * You may obtain a copy of the License at
- *
- *    http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- *
  */
 
 #include <stdio.h>
@@ -120,13 +101,6 @@ struct {
     { "wc_transport.",     AID_BLUETOOTH,   AID_SYSTEM },
     { "build.fingerprint", AID_SYSTEM,   0 },
     { "partition."        , AID_SYSTEM,   0},
-#ifdef DOLBY_UDC
-    { "dolby.audio",      AID_MEDIA,    0 },
-#endif // DOLBY_END
-#ifdef DOLBY_DAP
-    // used for setting Dolby specific properties
-    { "dolby.", AID_SYSTEM,   0 },
-#endif // DOLBY_END
     { NULL, 0, 0 }
 };
 
@@ -348,9 +322,11 @@ int property_set(const char *name, const char *value)
 void handle_property_set_fd()
 {
     prop_msg msg;
+    int n;
     int s;
     int r;
     int res;
+    int ret;
     struct ucred cr;
     struct sockaddr_un addr;
     socklen_t addr_size = sizeof(addr);
@@ -359,6 +335,8 @@ void handle_property_set_fd()
     struct pollfd ufds[1];
     const int timeout_ms = 2 * 1000;  /* Default 2 sec timeout for caller to send property. */
     int nr;
+    char rproperty[PROP_VALUE_MAX];
+    const prop_info *pi;
 
     if ((s = accept(property_set_fd, (struct sockaddr *) &addr, &addr_size)) < 0) {
         return;
@@ -431,7 +409,30 @@ void handle_property_set_fd()
         }
         freecon(source_ctx);
         break;
+    case PROP_MSG_GETPROP:
+        msg.name[PROP_NAME_MAX-1] = 0;
+        msg.value[0] = 0;
 
+        if (msg.name) {
+            /* If we have a value, copy it over, otherwise returns the default */
+            ret = property_get(msg.name, rproperty);
+            if (ret) {
+                strlcpy(msg.value, rproperty, sizeof(msg.value));
+            }
+        }
+
+        /* Send the property value back */
+        r = TEMP_FAILURE_RETRY(send(s, &msg, sizeof(msg), 0));
+        close(s);
+        break;
+    case PROP_MSG_LISTPROP:
+        for(n = 0; (pi = __system_property_find_nth(n)); n++) {
+            msg.name[0] = msg.value[0] = 0;
+            __system_property_read(pi, msg.name, msg.value);
+            TEMP_FAILURE_RETRY(send(s, &msg, sizeof(msg), 0));
+        }
+        close(s);
+        break;
     default:
         close(s);
         break;
@@ -631,6 +632,9 @@ void load_all_props(void)
     load_properties_from_file(PROP_PATH_SYSTEM_DEFAULT, NULL);
     load_properties_from_file(PROP_PATH_VENDOR_BUILD, NULL);
     load_properties_from_file(PROP_PATH_FACTORY, "ro.*");
+
+    /* ensure ro.boot.ftm gets set */
+    property_set("ro.boot.ftm", "0");
 
     /* Read vendor-specific property runtime overrides. */
     vendor_load_properties();

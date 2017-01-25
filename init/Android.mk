@@ -1,23 +1,4 @@
 # Copyright 2005 The Android Open Source Project
-#
-# This file was modified by Dolby Laboratories, Inc. The portions of the
-# code that are surrounded by "DOLBY..." are copyrighted and
-# licensed separately, as follows:
-#
-#  (C) 2011-2013 Dolby Laboratories, Inc.
-#
-# Licensed under the Apache License, Version 2.0 (the "License");
-# you may not use this file except in compliance with the License.
-# You may obtain a copy of the License at
-#
-#    http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing, software
-# distributed under the License is distributed on an "AS IS" BASIS,
-# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-# See the License for the specific language governing permissions and
-# limitations under the License.
-#
 
 LOCAL_PATH:= $(call my-dir)
 include $(CLEAR_VARS)
@@ -47,15 +28,23 @@ endif
 ifneq (,$(filter userdebug eng,$(TARGET_BUILD_VARIANT)))
 LOCAL_CFLAGS += -DALLOW_LOCAL_PROP_OVERRIDE=1 -DALLOW_DISABLE_SELINUX=1
 endif
-ifdef DOLBY_UDC
-  LOCAL_CFLAGS += -DDOLBY_UDC
-endif #DOLBY_UDC_END
-ifdef DOLBY_DAP
-LOCAL_CFLAGS += -DDOLBY_DAP
-endif #DOLBY_END
 
 # Enable ueventd logging
 #LOCAL_CFLAGS += -DLOG_UEVENTS=1
+
+SYSTEM_CORE_INIT_DEFINES := BOARD_CHARGING_MODE_BOOTING_LPM \
+    BOARD_CHARGING_CMDLINE_NAME \
+    BOARD_CHARGING_CMDLINE_VALUE
+
+$(foreach system_core_init_define,$(SYSTEM_CORE_INIT_DEFINES), \
+  $(if $($(system_core_init_define)), \
+    $(eval LOCAL_CFLAGS += -D$(system_core_init_define)=\"$($(system_core_init_define))\") \
+  ) \
+)
+
+ifneq ($(TARGET_NR_SVC_SUPP_GIDS),)
+LOCAL_CFLAGS += -DNR_SVC_SUPP_GIDS=$(TARGET_NR_SVC_SUPP_GIDS)
+endif
 
 LOCAL_MODULE:= init
 
@@ -71,7 +60,12 @@ LOCAL_STATIC_LIBRARIES := \
 	libc \
 	libselinux \
 	libmincrypt \
-	libext4_utils_static
+	libext4_utils_static \
+	libext2_blkid \
+	libext2_uuid_static \
+	liblz4-static \
+	libsparse_static \
+	libz
 
 LOCAL_ADDITIONAL_DEPENDENCIES += $(LOCAL_PATH)/Android.mk
 ifneq ($(strip $(TARGET_PLATFORM_DEVICE_BASE)),)
@@ -80,6 +74,11 @@ endif
 ifneq ($(strip $(TARGET_INIT_VENDOR_LIB)),)
 LOCAL_WHOLE_STATIC_LIBRARIES += $(TARGET_INIT_VENDOR_LIB)
 endif
+ifneq ($(strip $(TARGET_PROP_PATH_FACTORY)),)
+LOCAL_CFLAGS += -DOVERRIDE_PROP_PATH_FACTORY=\"$(TARGET_PROP_PATH_FACTORY)\"
+endif
+
+LOCAL_C_INCLUDES += external/zlib
 
 include $(BUILD_EXECUTABLE)
 
