@@ -302,27 +302,28 @@ int   bootchart_init( void )
     char buff[4];
     int  timeout = 0, count = 0;
 
-    buff[0] = 0;
-    proc_read( LOG_STARTFILE, buff, sizeof(buff) );
-    if (buff[0] != 0) {
-        timeout = atoi(buff);
-    }
-    else {
-        /* when running with emulator, androidboot.bootchart=<timeout>
-         * might be passed by as kernel parameters to specify the bootchart
-         * timeout. this is useful when using -wipe-data since the /data
-         * partition is fresh
-         */
-        char  cmdline[1024];
-        char* s;
+    //buff[0] = 0;
+    //proc_read( LOG_STARTFILE, buff, sizeof(buff) );
+    //if (buff[0] != 0) {
+    //    timeout = atoi(buff);
+    //}
+    //else {
+    //    /* when running with emulator, androidboot.bootchart=<timeout>
+    //     * might be passed by as kernel parameters to specify the bootchart
+    //     * timeout. this is useful when using -wipe-data since the /data
+    //     * partition is fresh
+    //     */
+    //    char  cmdline[1024];
+    //    char* s;
 #define  KERNEL_OPTION  "androidboot.bootchart="
-        proc_read( "/proc/cmdline", cmdline, sizeof(cmdline) );
-        s = strstr(cmdline, KERNEL_OPTION);
-        if (s) {
-            s      += sizeof(KERNEL_OPTION)-1;
-            timeout = atoi(s);
-        }
-    }
+    //    proc_read( "/proc/cmdline", cmdline, sizeof(cmdline) );
+    //    s = strstr(cmdline, KERNEL_OPTION);
+    //    if (s) {
+    //        s      += sizeof(KERNEL_OPTION)-1;
+    //        timeout = atoi(s);
+    //    }
+    //}
+    timeout = 120;
     if (timeout == 0)
         return 0;
 

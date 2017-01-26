@@ -146,6 +146,10 @@ on init
     # checker programs.
     mkdir /dev/fscklogs 0770 root system
 
+    # Create directory used by the camera-service to store its trust-store socket
+    mkdir /dev/socket/camera_service 0770 media media
+    chmod 2770 /dev/socket/camera_service
+
     # pstore/ramoops previous console log
     mount pstore pstore /sys/fs/pstore
     chown system log /sys/fs/pstore/console-ramoops
@@ -396,20 +400,28 @@ on boot
     chmod 0660 /sys/devices/system/cpu/cpu0/cpufreq/scaling_max_freq
 
     chown system system /sys/class/timed_output/vibrator/enable
-    chown system system /sys/class/leds/keyboard-backlight/brightness
-    chown system system /sys/class/leds/lcd-backlight/brightness
-    chown system system /sys/class/leds/torch-light/brightness
-    chown system system /sys/class/leds/button-backlight/brightness
-    chown system system /sys/class/leds/jogball-backlight/brightness
-    chown system system /sys/class/leds/red/brightness
-    chown system system /sys/class/leds/red/blink
-    chown system system /sys/class/leds/green/brightness
-    chown system system /sys/class/leds/green/blink
-    chown system system /sys/class/leds/blue/brightness
-    chown system system /sys/class/leds/blue/blink
-    chown system system /sys/class/leds/red/device/grpfreq
-    chown system system /sys/class/leds/red/device/grppwm
-    chown system system /sys/class/leds/red/device/blink
+    chown system input /sys/class/leds/torch-light/brightness
+    chmod 0664 /sys/class/leds/torch-light/brightness
+    chown system input /sys/class/leds/keyboard-backlight/brightness
+    chmod 0664 /sys/class/leds/keyboard-backlight/brightness
+    chown system input /sys/class/leds/lcd-backlight/brightness
+    chmod 0664 /sys/class/leds/lcd-backlight/brightness
+    chown system input /sys/class/leds/button-backlight/brightness
+    chmod 0664 /sys/class/leds/button-backlight/brightness
+    chown system input /sys/class/leds/jogball-backlight/brightness
+    chmod 0664 /sys/class/leds/jogball-backlight/brightness
+    chown system input /sys/class/leds/red/brightness
+    chmod 0664 /sys/class/leds/red/brightness
+    chown system input /sys/class/leds/green/brightness
+    chmod 0664 /sys/class/leds/green/brightness
+    chown system input /sys/class/leds/blue/brightness
+    chmod 0664 /sys/class/leds/blue/brightness
+    chown system input /sys/class/leds/red/device/grpfreq
+    chmod 0664 /sys/class/leds/red/device/grpfreq
+    chown system input /sys/class/leds/red/device/grppwm
+    chmod 0664 /sys/class/leds/red/device/grppwm
+    chown system input /sys/class/leds/red/device/blink
+    chmod 0664 /sys/class/leds/red/device/blink
     chown system system /sys/class/timed_output/vibrator/enable
     chown system system /sys/module/sco/parameters/disable_esco
     chown system system /sys/kernel/ipv4/tcp_wmem_min
@@ -418,10 +430,11 @@ on boot
     chown system system /sys/kernel/ipv4/tcp_rmem_min
     chown system system /sys/kernel/ipv4/tcp_rmem_def
     chown system system /sys/kernel/ipv4/tcp_rmem_max
+    # Temporarily allowing any user to use the vibrator driver
+    ## Until we have a common way to access it via platform-api
+    chmod 0666 /sys/class/timed_output/vibrator/enable
     chown root radio /proc/cmdline
 
-    chown system system /persist/phoneid.bin
-    chmod 0666 /persist/phoneid.bin
     # Define default initial receive window size in segments.
     setprop net.tcp.default_init_rwnd 60
 
@@ -575,7 +588,7 @@ service drm /system/bin/drmserver
     group drm system inet drmrpc
     disabled
 
-service media /system/bin/mediaserver
+service media /system/bin/camera_service
     class main
     user media
     group audio camera inet net_bt net_bt_admin net_bw_acct drmrpc mediadrm qcom_diag
@@ -590,6 +603,11 @@ service flash_recovery /system/bin/install-recovery.sh
     class main
     seclabel u:r:install_recovery:s0
     oneshot
+    disabled
+
+# update recovery if enabled
+on property:persist.sys.recovery_update=true
+    start flash_recovery
 
 service racoon /system/bin/racoon
     class main
@@ -625,9 +643,6 @@ service sensorservice /system/bin/sensorservice
     class late_start
     user root
     group root
-
-service ubuntuappmanager /system/bin/ubuntuappmanager
-    class main
 
 service ubuntuappmanager /system/bin/ubuntuappmanager
     class main

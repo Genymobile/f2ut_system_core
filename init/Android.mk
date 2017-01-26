@@ -39,10 +39,10 @@ LOCAL_SRC_FILES:= \
 
 LOCAL_CFLAGS    += -Wno-unused-parameter
 
-ifeq ($(strip $(INIT_BOOTCHART)),true)
+#ifeq ($(strip $(INIT_BOOTCHART)),true)
 LOCAL_SRC_FILES += bootchart.c
 LOCAL_CFLAGS    += -DBOOTCHART=1
-endif
+#endif
 
 ifneq (,$(filter userdebug eng,$(TARGET_BUILD_VARIANT)))
 LOCAL_CFLAGS += -DALLOW_LOCAL_PROP_OVERRIDE=1 -DALLOW_DISABLE_SELINUX=1

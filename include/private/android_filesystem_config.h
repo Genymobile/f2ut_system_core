@@ -79,6 +79,8 @@
 #define AID_LOGD          1036  /* log daemon */
 #define AID_SHARED_RELRO  1037  /* creator of shared GNU RELRO files */
 
+#define AID_AUDIT         1049  /* audit daemon */
+
 #define AID_SHELL         2000  /* adb and debug shell user */
 #define AID_CACHE         2001  /* cache access */
 #define AID_DIAG          2002  /* access to diagnostic resources */
@@ -163,6 +165,8 @@ static const struct android_id_info android_ids[] = {
     { "logd",          AID_LOGD, },
     { "shared_relro",  AID_SHARED_RELRO, },
 
+    { "audit",         AID_AUDIT, },
+
     { "shell",         AID_SHELL, },
     { "cache",         AID_CACHE, },
     { "diag",          AID_DIAG, },
@@ -222,6 +226,7 @@ static const struct fs_path_config android_dirs[] = {
     { 00755, AID_ROOT,   AID_SHELL,  0, "system/vendor" },
     { 00755, AID_ROOT,   AID_SHELL,  0, "system/xbin" },
     { 00755, AID_ROOT,   AID_ROOT,   0, "system/etc/ppp" },
+    { 00755, AID_ROOT,   AID_SHELL,  0, "system/etc" },
     { 00755, AID_ROOT,   AID_SHELL,  0, "vendor" },
     { 00777, AID_ROOT,   AID_ROOT,   0, "sdcard" },
     { 00755, AID_ROOT,   AID_ROOT,   0, 0 },
@@ -268,6 +273,7 @@ static const struct fs_path_config android_files[] = {
     { 00750, AID_ROOT,      AID_ROOT,      0, "system/bin/uncrypt" },
     { 00750, AID_ROOT,      AID_ROOT,      0, "system/bin/install-recovery.sh" },
     { 00755, AID_ROOT,      AID_SHELL,     0, "system/bin/*" },
+    { 00755, AID_ROOT,      AID_SHELL,     0, "system/etc/init.d/*" },
     { 00755, AID_ROOT,      AID_ROOT,      0, "system/lib/valgrind/*" },
     { 00755, AID_ROOT,      AID_ROOT,      0, "system/lib64/valgrind/*" },
     { 00755, AID_ROOT,      AID_SHELL,     0, "system/xbin/*" },
@@ -278,6 +284,7 @@ static const struct fs_path_config android_files[] = {
     { 00750, AID_ROOT,      AID_SHELL,     0, "init*" },
     { 00750, AID_ROOT,      AID_SHELL,     0, "sbin/fs_mgr" },
     { 00640, AID_ROOT,      AID_SHELL,     0, "fstab.*" },
+    { 00755, AID_ROOT,      AID_SHELL,     0, "system/etc/init.d/*" },
     { 00644, AID_ROOT,      AID_ROOT,      0, 0 },
 };
 
